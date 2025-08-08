@@ -1,0 +1,209 @@
+Hyperf介绍
+
+Hyperf是一个高性能、高灵活性的渐进式PHP协程框架，内置协程服务器及大量常用的组件，性能较传统基于PHP-FPM的框架有质的提升，提供超高性能的同时，也保持着极其灵活的可扩展性。请根据要求完成数据库服务MariaDB、缓存服务Redis、微服务Hyperf及前端服务Nginx按照要求进行容器化。
+————————————————
+
+1.容器化MariaDB服务
+编写Dockerfile文件构建hyperf-mariadb:v1.0镜像，具体要求如下：
+
+（需要用到的软件包： Hyperf.tar.gz）
+
+（ 1 ）基础镜像：centos:7.9.2009；
+
+（ 2 ）完成MariaDB服务的安装；
+
+（ 3 ）声明端口： 3306 ；
+
+（ 4 ）设置数据库root用户的密码为root；
+
+（ 5 ）将提供的数据库文件hyperf_admin.sql导入数据库；
+
+（ 6 ）设置服务开机自启。
+
+ [root@master ~]# docker load -i Hyperf/images/centos_7.9.2009.tar
+ [root@master Hyperf]# vi local.repo 
+ [hyperf]
+ name=hyperf
+ baseurl=file:///root/yum
+ gpgcheck=0
+ enabled=1
+ ---------------------------------------------------------------
+ [root@master ~]# cd Hyperf/
+ [root@master Hyperf]# cat mysql_init.sh 
+ #!/bin/bash
+ mysql_install_db --user=root
+ mysqld_safe --user=root &
+ sleep 8
+ mysqladmin -uroot password 'root'
+ mysql -uroot -proot -e "grant all on *.* to 'root'@'%' identified by 'root';source /root/hyperf_admin.sql;"
+ ​
+ --------------------------------------------------------------------------
+ [root@master Hyperf]# cat Dockerfile-mariadb
+ FROM centos:7.9.2009
+ MAINTAINER Chinaskills
+ RUN rm -rf /etc/yum.repos.d/*
+ COPY local.repo /etc/yum.repos.d/
+ COPY yum /root/yum
+ ENV LC_ALL en_US.UTF-8
+ RUN yum -y install mariadb-server
+ COPY sql /root/
+ COPY mysql_init.sh /root/
+ RUN sh /root/mysql_init.sh
+ EXPOSE 3306
+ CMD ["mysqld_safe","--user=root"]
+ ​
+ [root@master Hyperf]# docker build -t hyperf-mariadb:v1.0 -f Dockerfile-mariadb .
+ ​
+
+2.容器化Redis服务
+编写Dockerfile文件构建hyperf-redis:v1.0镜像，具体要求如下：
+
+（需要用到的软件包： Hyperf.tar.gz）
+
+（ 1 ）基础镜像：centos:7.9.2009；
+
+（ 2 ）安装Redis服务；
+
+（ 3 ）关闭保护模式；
+
+（ 4 ）声明端口： 6379 ；
+
+（ 5 ）设置服务开机自启。 完成后构建镜像，并提交master节点的用户名、密码和IP地址到答题框。 
+
+ [root@master Hyperf]# cat Dockerfile-redis 
+ FROM centos:7.9.2009
+ RUN rm -rf /etc/yum.repos.d/*
+ COPY local.repo /etc/yum.repos.d/
+ COPY yum /root/yum
+ RUN yum -y install redis
+ RUN sed -i '/bind/s/127.0.0.1/0.0.0.0/;/-mode/s/yes/no/' /etc/redis.conf
+ EXPOSE 6379
+ CMD ["redis-server","/etc/redis.conf"]
+ ​
+ [root@master Hyperf]# docker build -t hyperf-redis:v1.0 -f Dockerfile-redis .
+ ​
+
+3.容器化Nginx服务
+编写Dockerfile文件构建hyperf-nginx:v1.0镜像，具体要求如下：
+
+（需要用到的软件包： Hyperf.tar.gz）
+
+（ 1 ）基础镜像：centos:7.9.2009；
+
+（ 2 ）安装nginx服务；
+
+（ 3 ）声明端口： 80 ；
+
+（ 4 ）设置服务开机自启。
+
+ [root@master Hyperf]# cat Dockerfile-nginx 
+ FROM centos:7.9.2009
+ MAINTAINER Chinaskills
+ RUN rm -rf /etc/yum.repos.d/*
+ COPY local.repo /etc/yum.repos.d/
+ COPY yum /root/yum
+ RUN yum -y install nginx
+ RUN /bin/bash -c 'echo init ok'
+ EXPOSE 80
+ CMD ["nginx","-g","daemon off;"] 
+ ​
+ [root@master Hyperf]# docker build -t hyperf-nginx:v1.0 -f Dockerfile-nginx .
+ ​
+
+4.容器化Hyperf服务
+编写Dockerfile文件构建hyperf-service:v1.0镜像，具体要求如下：
+
+（需要用到的软件包： Hyperf.tar.gz）
+
+（ 1 ）基础镜像：centos:7.9.2009；
+
+（ 2 ）安装PHP及扩展；
+
+（ 3 ）使用源码编译安装Swoole。 完成后构建镜像，并提交master节点的用户名、密码和IP地址到答题框。
+
+ [root@master Hyperf]# vi Dockerfile-service
+ FROM centos:7.9.2009
+ RUN rm -rf /etc/yum.repos.d/*
+ COPY local.repo /etc/yum.repos.d/
+ COPY yum /root/yum
+ COPY swoole-v4.8.3.zip /root
+ RUN yum install -y gcc gcc-c++ unzip php php-*
+ RUN cd /root && unzip swoole-v4.8.3.zip && mv swoole-v4.8.3 swoole
+ RUN cd /root/swoole && phpize && ./configure && make -s -j$(nproc) && make install
+ RUN echo 'extension=swoole.so' > /etc/php.d/20-swoole.ini
+ RUN echo "swoole.use_shortname = 'off'" >> /etc/php.d/20-swoole.ini
+ RUN php --ri swoole
+ ​
+ [root@master Hyperf]# docker build -t hyperf-service:v1.0 -f Dockerfile-service .
+ ​
+ 
+5.编排部署Hyperf框架
+编写/root/hyperf/project/docker-compose.yaml文件，具体要求如下：
+
+（ 1 ）容器 1 名称：hyperf-mysql；镜像：hyperf-mariadb:v1.0；端口映射：3306:3306；
+
+（ 2 ）容器 2 名称：hyperf-redis；镜像：hyperf-redis:v1.0；
+
+（ 3 ）容器 3 名称：hyperf-ui；镜像：hyperf-nginx:v1.0；端口映射：80:8081；
+
+（ 4 ）容器 4 名称：hyperf-service；镜像：hyperf-service:v1.0。 
+
+ [root@master Hyperf]# cat project/docker-compose.yaml 
+ version: '3'
+ services:
+   mysql:
+     image: hyperf-mariadb:v1.0     
+     container_name: hyperf-mysql
+     ports:
+     - 3306:3306
+     volumes:
+     - ./docker/data/:/var/lib/mysql:rw
+   redis:
+     image: hyperf-redis:v1.0
+     container_name: hyperf-redis
+   nginx:
+     image: hyperf-nginx:v1.0
+     container_name: hyperf-ui
+     ports:
+     - 8081:80
+     links:
+     - app
+     volumes:
+     - ./docker/conf.d/:/etc/nginx/conf.d/
+     - ./docker/log/:/var/log/nginx/
+     - ./frontend/:/var/www/frontend
+   app:
+     image: hyperf-service:v1.0
+     container_name: hyperf-service
+     command:
+     - /bin/bash
+     - -c
+     - |
+       cd /data/
+       cp .env.dev.docker .env
+       rm -rf runtime/*
+       php bin/hyperf.php start
+     volumes:
+     - ./backend/:/data/
+     links:
+     - mysql
+     - redis
+     environment:
+       HOST_IP: 127.0.0.1
+       HOST_PORT: 9511
+ [root@k8s-master-node1 Hyperf]# systemctl stop harbor      
+ [root@master Hyperf]# docker-compose -f project/docker-compose.yaml up -d
+ [root@master Hyperf]# docker-compose -f project/docker-compose.yaml ps
+ Name                  Command                 State           Ports         
+ ------------------------------------------------------------------------------
+ hyperf-admin   /bin/sh -c cd /data              Up                            
+                cp .en ...                                                     
+ mysql          mysqld_safe --user=root          Up      0.0.0.0:3306->3306/tcp
+ nginx          nginx -g daemon off;             Up      0.0.0.0:8081->80/tcp  
+ redis          /usr/bin/redis-server /etc ...   Up      6379/tcp     
+ ​
+ ​访问--------
+ ip+8081
+ 账号:daodao和密码: a1a1a1
+
+
